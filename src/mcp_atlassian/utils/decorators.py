@@ -9,6 +9,12 @@ from fastmcp.exceptions import ToolError
 from requests.exceptions import HTTPError
 
 from mcp_atlassian.exceptions import MCPAtlassianAuthenticationError
+from mcp_atlassian.utils.upstream_errors import (
+    end_trace,
+    extract_error_message,
+    format_upstream_error,
+    start_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +34,34 @@ def handle_tool_errors(func: F) -> F:
 
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        trace, token = start_trace()
         try:
-            return await func(*args, **kwargs)
+            result = await func(*args, **kwargs)
         except ToolError:
             raise
+        except HTTPError as e:
+            if e.response is None:
+                detail = str(e).strip() or type(e).__name__
+            else:
+                detail = format_upstream_error(
+                    e.response.status_code, extract_error_message(e.response)
+                )
+            logger.error(f"Error in tool '{tool_name}': {detail}")
+            raise ToolError(f"Error calling tool '{tool_name}': {detail}") from e
         except Exception as e:
             detail = str(e).strip() or type(e).__name__
             logger.error(f"Error in tool '{tool_name}': {detail}", exc_info=True)
             message = f"Error calling tool '{tool_name}': {detail}"
             raise ToolError(message) from e
+        finally:
+            end_trace(token)
+
+        hidden = trace.unreported_failure()
+        if hidden is not None:
+            detail = format_upstream_error(*hidden)
+            logger.error(f"Tool '{tool_name}' hid an upstream failure: {detail}")
+            raise ToolError(f"Error calling tool '{tool_name}': {detail}")
+        return result
 
     return wrapper  # type: ignore
 

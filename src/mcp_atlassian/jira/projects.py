@@ -478,7 +478,7 @@ class ProjectsMixin(JiraClient, SearchOperationsProto):
                     )
                     if not isinstance(meta, dict):
                         break
-                    entries = meta.get("values", [])
+                    entries = meta.get("values") or meta.get("fields", [])
                     for entry in entries:
                         if not isinstance(entry, dict):
                             continue
