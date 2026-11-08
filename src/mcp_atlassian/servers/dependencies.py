@@ -28,6 +28,7 @@ from mcp_atlassian.utils.env import (
 )
 from mcp_atlassian.utils.oauth import OAuthConfig
 from mcp_atlassian.utils.proxy import get_proxy_settings_from_env
+from mcp_atlassian.utils.upstream_errors import run_untraced
 from mcp_atlassian.utils.urls import validate_url_for_ssrf
 
 if TYPE_CHECKING:
@@ -540,12 +541,12 @@ def _create_and_validate(
             validation_data = _validate_with_cache(
                 cache_key,
                 validation_cache,
-                lambda: spec.validate_fn(fetcher),
+                lambda: run_untraced(spec.validate_fn, fetcher),
                 fn_name,
                 spec.name,
             )
         else:
-            validation_data = spec.validate_fn(fetcher)
+            validation_data = run_untraced(spec.validate_fn, fetcher)
         spec.on_validated(
             fn_name,
             request,

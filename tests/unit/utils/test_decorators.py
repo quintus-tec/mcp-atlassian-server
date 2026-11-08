@@ -1,6 +1,8 @@
+import json
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 from fastmcp.exceptions import ToolError
 from requests.exceptions import HTTPError
 
@@ -10,6 +12,7 @@ from mcp_atlassian.utils.decorators import (
     handle_auth_errors,
     handle_tool_errors,
 )
+from mcp_atlassian.utils.upstream_errors import record_response, run_untraced
 
 
 class DummyContext:
@@ -74,6 +77,84 @@ async def test_handle_tool_errors_preserves_return_value():
 
     result = await good_tool()
     assert result == "success"
+
+
+def _atlassian_response(
+    status_code: int, body: dict | None = None
+) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body or {}).encode()
+    response.url = "https://api.atlassian.com/ex/jira/cloud-id/rest/agile/1.0/board"
+    return response
+
+
+SCOPE_401 = {"code": 401, "message": "Unauthorized; scope does not match"}
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_errors_raises_on_swallowed_scope_error():
+    @handle_tool_errors
+    async def get_agile_boards():
+        record_response(_atlassian_response(401, SCOPE_401))
+        return "[]"
+
+    with pytest.raises(ToolError) as exc:
+        await get_agile_boards()
+    message = str(exc.value)
+    assert "Atlassian API error 401: Unauthorized; scope does not match" in message
+    assert "lacks the scope" in message
+    assert "api.atlassian.com" not in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("statuses", "fails"),
+    [
+        ([404], True),
+        ([500], True),
+        ([200, 403], True),
+        ([404, 200], False),
+        ([200, 400], False),
+        ([200], False),
+    ],
+)
+async def test_handle_tool_errors_judges_swallowed_failures(statuses, fails):
+    @handle_tool_errors
+    async def tool():
+        for status in statuses:
+            record_response(_atlassian_response(status, {"errorMessages": ["boom"]}))
+        return "[]"
+
+    if fails:
+        with pytest.raises(ToolError, match=f"Atlassian API error {statuses[-1]}"):
+            await tool()
+    else:
+        assert await tool() == "[]"
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_errors_ignores_untraced_credential_check():
+    @handle_tool_errors
+    async def tool():
+        run_untraced(record_response, _atlassian_response(200))
+        record_response(_atlassian_response(404, {"errorMessages": ["No board"]}))
+        return "[]"
+
+    with pytest.raises(ToolError, match="Atlassian API error 404: No board"):
+        await tool()
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_errors_formats_raised_http_error():
+    @handle_tool_errors
+    async def tool():
+        raise HTTPError(response=_atlassian_response(403, SCOPE_401))
+
+    with pytest.raises(ToolError) as exc:
+        await tool()
+    assert "Atlassian API error 403" in str(exc.value)
+    assert "api.atlassian.com" not in str(exc.value)
 
 
 # --- handle_auth_errors tests ---

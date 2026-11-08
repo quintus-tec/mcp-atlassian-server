@@ -736,10 +736,12 @@ def test_get_project_fields_merges_issue_type_fields(projects_mixin: ProjectsMix
     )
 
 
+@pytest.mark.parametrize("entries_key", ["values", "fields"])
 def test_get_project_fields_uses_required_from_any_issue_type(
-    projects_mixin: ProjectsMixin,
+    projects_mixin: ProjectsMixin, entries_key: str
 ):
-    """Test merged fields are required if any issue type requires them."""
+    """Merged fields are required if any issue type requires them; Server/DC
+    pages list fields under ``values``, Cloud under ``fields``."""
     projects_mixin.get_project_issue_types = MagicMock(  # type: ignore[method-assign]
         return_value=[
             {"id": "10000", "name": "Bug"},
@@ -750,7 +752,7 @@ def test_get_project_fields_uses_required_from_any_issue_type(
         {
             "startAt": 0,
             "total": 1,
-            "values": [
+            entries_key: [
                 {
                     "fieldId": "customfield_10010",
                     "name": "Customer",
@@ -762,7 +764,7 @@ def test_get_project_fields_uses_required_from_any_issue_type(
         {
             "startAt": 0,
             "total": 1,
-            "values": [
+            entries_key: [
                 {
                     "fieldId": "customfield_10010",
                     "name": "Customer",
