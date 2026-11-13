@@ -93,17 +93,27 @@ SCOPE_401 = {"code": 401, "message": "Unauthorized; scope does not match"}
 
 
 @pytest.mark.asyncio
-async def test_handle_tool_errors_raises_on_swallowed_scope_error():
+@pytest.mark.parametrize(
+    ("body", "expected", "absent"),
+    [
+        (SCOPE_401, "lacks permission for this operation", "reconnect"),
+        ({"code": 401, "message": "Unauthorized"}, "reconnect", "lacks permission"),
+    ],
+)
+async def test_handle_tool_errors_raises_on_swallowed_auth_error(
+    body, expected, absent
+):
     @handle_tool_errors
     async def get_agile_boards():
-        record_response(_atlassian_response(401, SCOPE_401))
+        record_response(_atlassian_response(401, body))
         return "[]"
 
     with pytest.raises(ToolError) as exc:
         await get_agile_boards()
     message = str(exc.value)
-    assert "Atlassian API error 401: Unauthorized; scope does not match" in message
-    assert "lacks the scope" in message
+    assert f"Atlassian API error 401: {body['message']}" in message
+    assert expected in message
+    assert absent not in message
     assert "api.atlassian.com" not in message
 
 
@@ -154,6 +164,7 @@ async def test_handle_tool_errors_formats_raised_http_error():
     with pytest.raises(ToolError) as exc:
         await tool()
     assert "Atlassian API error 403" in str(exc.value)
+    assert "lacks permission for this operation" in str(exc.value)
     assert "api.atlassian.com" not in str(exc.value)
 
 
