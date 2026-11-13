@@ -109,10 +109,16 @@ def format_upstream_error(status: int, message: str) -> str:
     text = f"Atlassian API error {status}"
     if message:
         text += f": {message}"
-    if status in AUTH_STATUSES:
+    # 403 and a 401 naming the scope mean the login works but lacks this permission.
+    if status == 403 or (status == 401 and "scope" in message.lower()):
         text += (
-            ". Authorization failed: the token is expired, revoked or lacks the "
-            "scope for this operation; reconnect the Atlassian account."
+            ". This Atlassian login lacks permission for this operation; "
+            "other tools may still work."
+        )
+    elif status == 401:
+        text += (
+            ". Authorization failed: the token is expired or revoked; "
+            "reconnect the Atlassian account."
         )
     return text
 
